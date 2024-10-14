@@ -11,5 +11,6 @@ glob = "0.3.1"
 itertools = "0.13.0"
 kaggle = "1.0.3"
 log = "0.4.22"
+polars = "0.43.1"
 regex = "1.11.0"
 tokio = { version = "0.2.25", features = ["rt-threaded", "macros"] }

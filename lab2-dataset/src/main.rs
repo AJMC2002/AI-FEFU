@@ -2,21 +2,26 @@ mod models;
 mod schema;
 
 use core::panic;
+use std::collections::HashMap;
 use std::error::Error;
+use std::io::Write;
 use std::path::PathBuf;
 use std::process::Command;
-use std::{env, fs};
-
-use models::*;
-use schema::poems;
+use std::{env, fs, io};
 
 use diesel::{insert_into, prelude::*};
 use dotenvy::dotenv;
 use glob::glob;
 use itertools::Itertools;
 use kaggle::KaggleApiClient;
-use log::{debug, info};
+use log::info;
+use models::*;
+use polars::datatypes::DataType;
+use polars::frame::row::Row;
+use polars::frame::DataFrame;
+use polars::prelude::{Schema, SortMultipleOptions};
 use regex::Regex;
+use schema::poems;
 
 fn establish_connection() -> PgConnection {
     dotenv().ok();
@@ -27,11 +32,14 @@ fn establish_connection() -> PgConnection {
 }
 
 fn redo_table() -> Result<(), Box<dyn Error>> {
-    Command::new("diesel")
-        .arg("migaration")
+    let output = Command::new("diesel")
+        .arg("migration")
         .arg("redo")
         .output()
         .expect("Error when resetting the table.");
+    info!("Redo status: {}", output.status);
+    io::stdout().write_all(&output.stdout).unwrap();
+    io::stderr().write_all(&output.stderr).unwrap();
     Ok(())
 }
 
@@ -60,14 +68,14 @@ async fn download_dataset(dataset: &str) -> Result<(), Box<dyn Error>> {
 }
 
 fn path_to_poem(path: &PathBuf) -> NewPoem {
-    let re = Regex::new(r"^(?<topic>.+)Poems(?<title>.+)Poemby(?<author>.*)$").unwrap();
+    let re = Regex::new(r"^(?<topic>.+?)Poems(?<title>.+)Poemby(?<author>.*)$").unwrap();
     let filename = path.file_stem().unwrap();
 
-    debug!("Reading file: {}.txt", &filename.to_str().unwrap());
+    info!("Reading file: {}.txt", &filename.to_str().unwrap());
 
     let caps = re.captures(filename.to_str().unwrap()).unwrap();
 
-    let topic = caps["topic"].to_string();
+    let topic = caps["topic"].to_string().to_lowercase();
     let title = caps["title"].to_string();
     let author = if &caps["author"] == "" {
         None
@@ -107,7 +115,7 @@ fn insert_poems(conn: &mut PgConnection) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-#[tokio::main(core_threads = 8)]
+#[tokio::main(core_threads = 16)]
 async fn main() -> Result<(), Box<dyn Error>> {
     env_logger::init();
 
@@ -119,10 +127,49 @@ async fn main() -> Result<(), Box<dyn Error>> {
     }
 
     let conn = &mut establish_connection();
-    let results = poems::dsl::poems
-        .select(Poem::as_select())
-        .load(conn)
-        .expect("Rizz");
+    let results: Vec<Poem> = poems::dsl::poems.select(Poem::as_select()).load(conn)?;
+
+    let mut tokens: HashMap<String, i64> = HashMap::new();
+    let re = Regex::new(r"\W+")?;
+
+    for poem in results {
+        for token in re.split(&poem.body) {
+            let lowercase_token = token.to_lowercase();
+            let count = tokens.get(&lowercase_token).unwrap_or(&0) + 1;
+            tokens.insert(lowercase_token, count);
+        }
+    }
+
+    let mut df_schema = Schema::default();
+    df_schema.insert("token".into(), DataType::String);
+    df_schema.insert("frequency".into(), DataType::Int64);
+
+    let df = DataFrame::from_rows_and_schema(
+        tokens
+            .iter()
+            .map(|(k, &v)| Row::new(vec![k.as_str().into(), v.into()]))
+            .collect::<Vec<Row>>()
+            .as_slice(),
+        &df_schema,
+    )?;
+
+    let most_frequent_df = df
+        .sort(
+            ["frequency"],
+            SortMultipleOptions::default()
+                .with_order_descending(true)
+                .with_multithreaded(true),
+        )?
+        .head(Some(10));
+    println!("{:?}", most_frequent_df);
+
+    let least_frequent_df = df
+        .sort(
+            ["frequency"],
+            SortMultipleOptions::default().with_multithreaded(true),
+        )?
+        .head(Some(10));
+    println!("{:?}", least_frequent_df);
 
     Ok(())
 }
