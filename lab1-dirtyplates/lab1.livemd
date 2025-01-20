@@ -846,7 +846,6 @@ model_state =
 11:33:03.608 [info] InUse at 7e9fbbbc3400 of size 512 next 4376
 
 11:33:03.608 [info] InUse at 7e9fbbbc3600 of size 512 next 4570
-
 ```
 
 <!-- livebook:{"output":true} -->
@@ -1851,8 +1850,6 @@ Peak buffers:
 		Entry Parameter Subshape: f32[12544,128]
 		==========================
 
-
-
 ```
 
 ```elixir
@@ -1867,7 +1864,6 @@ File.write(
 ```
 
 11:29:11.900 [warning] Attempting to serialize an Axon model. Serialization is discouraged and will be deprecated, then removed in future releases. You should keep your model definitions as code and serialize your parameters using `Nx.serialize/2`.
-
 ```
 
 <!-- livebook:{"output":true} -->

@@ -6,6 +6,7 @@ use core::panic;
 use std::collections::HashMap;
 use std::env;
 use std::error::Error;
+use std::io::Write;
 use std::sync::LockResult;
 
 use diesel::prelude::*;
@@ -78,7 +79,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         .head(Some(15));
     println!("LEAST FREQUENT DF\n{:?}\n", least_frequent_df);
 
-    let head_pct = 100 as f64 / df.height() as f64; // Percent removed from the most popular words
+    let head_pct = 0 as f64 / df.height() as f64; // Percent removed from the most popular words
     let tail_pct = 0.9; // Percent removed from the least popular words
     let offset = (df.height() as f64 * head_pct).round() as i64;
     let length = (df.height() as f64 * (1.0 - (head_pct + tail_pct))).round() as usize;
@@ -90,6 +91,11 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     )?;
     df = df.slice(offset.into(), length.into());
     println!("CLEAN DF\n{:?}\n", df);
+
+    let mut fout = std::fs::File::create("custom.tokens")?;
+    for s in df["words"].str()?.iter() {
+        fout.write(format!("{}\n", s.unwrap()).as_bytes())?;
+    }
 
     let tokenizer = Tokenizer::from_pretrained("bert-base-cased", None)?;
     let tokens_series: Vec<Series> = df["words"]

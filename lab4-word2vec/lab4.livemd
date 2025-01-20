@@ -1,0 +1,541 @@
+<!-- livebook:{"persist_outputs":true} -->
+
+# CBOW
+
+```elixir
+Mix.install([
+  {:tokenizers, "~> 0.5.0"},
+  {:axon, github: "elixir-nx/axon"},
+  {:polaris, "~> 0.1"},
+  {:exla, "~> 0.5"},
+  {:nx, "~> 0.5"},
+  {:kino_vega_lite, "~> 0.1.0"},
+  {:kino, "~> 0.10.0"},
+  {:csv, "~> 3.2"},
+  {:ok, "~> 2.3"},
+  {:scholar, "~> 0.3.1"},
+  {:ecto, "~> 3.12"},
+  {:table_rex, "~> 3.0"}
+])
+
+Nx.global_default_backend(EXLA.Backend)
+
+Application.put_env(:exla, :clients,
+  cuda: [platform: :cuda, preallocate: false],
+  rocm: [platform: :rocm],
+  tpu: [platform: :tpu],
+  host: [platform: :host]
+)
+```
+
+## Preprocessing text
+
+```elixir
+import OK, only: ["~>>": 2]
+```
+
+<!-- livebook:{"output":true} -->
+
+```
+OK
+```
+
+```elixir
+paths =
+  Path.wildcard("/data/poems/*/*.txt")
+  |> Enum.shuffle()
+
+train_size = round(0.8 * length(Enum.to_list(paths)))
+{train_paths, test_paths} = paths |> Enum.split(train_size)
+```
+
+<!-- livebook:{"output":true} -->
+
+```
+{["/data/poems/poem/PoemPoemsKitchenPoemPoembyFrancisScarfe.txt",
+  "/data/poems/star/StarPoemsAFallingStarPoembyMariaKamyAbdool.txt",
+  "/data/poems/respect/RespectPoemsWithDueRespectToThorPoembyHeatherMcHugh.txt",
+  "/data/poems/june/JunePoems12thJune2010PoembyEdwardKofiLouis.txt",
+  "/data/poems/june/JunePoemsWelcomeJunePoembyRandyMcClave.txt",
+  "/data/poems/winter/WinterPoemsARhapsodyOfASouthernWinterNightPoembyHenryTimrod.txt",
+  "/data/poems/dream/DreamPoemsADreamWithinADreamPoembySandraFeldman.txt",
+  "/data/poems/travel/TravelPoemsTravelHaikuOuterBanksNorthCarolinaPoembyjohntiongchunghoo.txt",
+  "/data/poems/power/PowerPoemsPowerPoembyMarilynShepperson.txt",
+  "/data/poems/poverty/PovertyPoemsSonnetOPovertyThoughFromThyHaggardEyePoembyWilliamLisleBowles.txt",
+  "/data/poems/fear/FearPoemsASonnetOfFearPoembyJoLynnEhnesAllen.txt",
+  "/data/poems/hunting/HuntingPoemsHuntingSongPoembyBj├╕rnstjerneBj├╕rnson.txt",
+  "/data/poems/power/PowerPoemsThePowerOfWomanPoembyFriedrichSchiller.txt",
+  "/data/poems/snake/SnakePoemsASnakeIsASnakePoembyJuanOlivarez.txt",
+  "/data/poems/freedom/FreedomPoemsFreedomPoembyHannahHampton.txt",
+  "/data/poems/destiny/DestinyPoemsDestinyPoembyErDrPRADEEPKUMARMOHANTY.txt",
+  "/data/poems/childhood/ChildhoodPoemsChildhoodPainPoembyYassarAli.txt",
+  "/data/poems/greed/GreedPoemsGreedPoembyGangadharannairPulingat.txt",
+  "/data/poems/dream/DreamPoemsADreamWithinADreamPoembyjohntiongchunghoo.txt",
+  "/data/poems/warning/WarningPoemsReplyToTheIndianWarningPoembyEdgardoTugade.txt",
+  "/data/poems/destiny/DestinyPoemsCruelDestinyPoembyMichaelVinicioCamachoMen├йndez.txt",
+  "/data/poems/wedding/WeddingPoemsMaranMilanDeathWeddingPoembyRabindranathTagore.txt",
+  "/data/poems/husband/HusbandPoemsTheHusbandShallBeautifyTheChasteWifePoembyDrVKKanniappan.txt",
+  "/data/poems/city/CityPoemsCityBusPoembyAshrafulMusaddeq.txt",
+  "/data/poems/kiss/KissPoemsAKissIsMoreThanAKissPoembyLeslieAlexis.txt",
+  "/data/poems/frog/FrogPoemsHaikuFrogPoembyDonHaney.txt",
+  "/data/poems/poverty/PovertyPoemsPovertyPoembyEmmanuelGeorgeCefai.txt",
+  "/data/poems/mirror/MirrorPoemsACrackInTheMirrorPoembyBenGieske.txt",
+  "/data/poems/hair/HairPoemsAPinHasAHeadButHasNoHairPoembyChristinaGeorginaRossetti.txt",
+  "/data/poems/fear/FearPoemsNoFearPoembyDavidDarbyshire.txt",
+  "/data/poems/racism/RacismPoemsLpgaIsRacismOnTheLadiesProTourPoembyLukeEaster.txt",
+  "/data/poems/war/WarPoemsAPrayerInTimeOfWarPoembyAlfredNoyes.txt",
+  "/data/poems/fear/FearPoemsTheShortFearPoembyBryanStanleyJohnson.txt",
+  "/data/poems/hunting/HuntingPoemsHuntingOnBelleayreMountainPoembyEugeneLevich.txt",
+  "/data/poems/greed/GreedPoemsTheDayAfterGreedPoembyEricCockrell.txt",
+  "/data/poems/work/WorkPoemsWallaceStevensOnHisWayToWorkPoembyDavidWagoner.txt",
+  "/data/poems/joy/JoyPoemsInfantJoyPoembyWilliamBlake.txt",
+  "/data/poems/hope/HopePoemsHopePoembyicejohnson.txt",
+  "/data/poems/brother/BrotherPoemsOhBrotherMyBrotherPoembyJezBurl.txt",
+  "/data/poems/culture/CulturePoemsTibetanCulturePoembyRoseAnnVShawiak.txt",
+  "/data/poems/joy/JoyPoemsJoyPoembysumaira.txt",
+  "/data/poems/sister/SisterPoemsMalcolmXInTheMiddleDedicatedToMyDeceasedSisterPatriciaPoembyJoeRosochacki.txt",
+  "/data/poems/night/NightPoemsThoughtsInATranquilNightPoembyLiPo.txt",
+  "/data/poems/destiny/DestinyPoemsABiographyOfOneMansDestinyPoembyTheoremTheTruthSerum.txt",
+  "/data/poems/love/LovePoemsWhyILoveYouIfYouLoveWaelMoreichehPoembyWAELMOREICHEH.txt",
+  "/data/poems/life/LifePoemsLifeIsSweetLifeIsShortPoembycynthiabrissette.txt",
+  "/data/poems/peace/PeacePoemsPeacetruePeacePoembyJeanMallette.txt",
+  "/data/poems/weather/WeatherPoemsWeatherMasterEnlightenmentPathsPoembyTerenceGeorgeCraddockSpectralImagesandImagesOfLight.txt",
+  "/data/poems/murder/MurderPoemsTheMurderOfHopePoembyBrianHinckley.txt", ...],
+ ["/data/poems/city/CityPoemsWinterInTheCityPoembyMichaelShepherd.txt",
+  "/data/poems/wedding/WeddingPoemsAJinxedWeddingRingPoembyMichaelMicmacMccrory.txt",
+  "/data/poems/work/WorkPoemsWorkHardPlayHarderPoembyCathrynMartin.txt",
+  "/data/poems/poetry/PoetryPoemsPhilologyRecapitulatesOntologyPoetryIsOntologyPoembyDelmoreSchwartz.txt",
+  "/data/poems/poverty/PovertyPoemsPovertyACurseOrABoonPoembyAftabAlam.txt",
+  "/data/poems/lonely/LonelyPoemsLonelyPoembyDeepakAmembal.txt",
+  "/data/poems/greed/GreedPoemsAStoryOfLoveAndGreedPoembyKristinNicoleRothDavis.txt",
+  "/data/poems/heaven/HeavenPoems0161HeavenThoughtsFrom1350AdCePoembyMichaelShepherd.txt",
+  "/data/poems/butterfly/ButterflyPoemsLifeIsLikeAButterflyPoembyJosephTRenaldi.txt",
+  "/data/poems/happiness/HappinessPoemsWarpedHappinessPoembyUriahHamilton.txt",
+  "/data/poems/football/FootballPoemsAfterSchoolStreetFootballEighthGradePoembyDennisCooper.txt",
+  "/data/poems/hair/HairPoemsMenLooksMuchBetterWithGreyHairPoembyAldoKraas.txt",
+  "/data/poems/animal/AnimalPoemsAPoliticalAnimalPoembyRoseMarieJuanAustin.txt",
+  "/data/poems/marriage/MarriagePoemsTheMarriageOfGeraintPoembyAlfredLordTennyson.txt",
+  "/data/poems/carpe diem/CarpediemPoemsChristmasCelebrationCarpeDiemPoembyDorianPetersenPotter.txt",
+  "/data/poems/winter/WinterPoemsWinterEveningPoembyGeorgTrakl.txt",
+  "/data/poems/sleep/SleepPoemsBeforeSleepPoembyEzraPound.txt",
+  "/data/poems/lust/LustPoemsLustPoembyIsiahOnaCornerintheThunderingDarkness.txt",
+  "/data/poems/january/JanuaryPoemsNewYearsJourneySince11thJanuary1958To2ndJanuary2019ByApsrtcBusVia2018PoembyKumarmaniMahakul.txt",
+  "/data/poems/night/NightPoemsANightThoughtPoembyWilliamWordsworth.txt",
+  "/data/poems/rain/RainPoemsIiATraversalOfTheGreatRainMakerPoembyIgweKalu.txt",
+  "/data/poems/rain/RainPoemsANightRainInSummerPoembyJamesHenryLeighHunt.txt",
+  "/data/poems/life/LifePoemsWeaveInWeaveInMyHardyLifePoembyWaltWhitman.txt",
+  "/data/poems/today/TodayPoemsAGoodDayTodayIsPoembyLizMunro.txt",
+  "/data/poems/rain/RainPoemsRainPoembyJudyHill.txt",
+  "/data/poems/crazy/CrazyPoemsAmICrazyOrAmISanePoembyLizMunro.txt",
+  "/data/poems/joy/JoyPoemsHaikuTheJoyToBeAnimalPoembyjohntiongchunghoo.txt",
+  "/data/poems/swimming/SwimmingPoemsSwimmingInTheOceanOfLovePoembyRameshTA.txt",
+  "/data/poems/car/CarPoemsLyricsFastCarTracyChapmanPoembyLilyannMonahan.txt",
+  "/data/poems/culture/CulturePoemsGrowthOfCulturePoembyDrACelestineRajManoharMD.txt",
+  "/data/poems/anger/AngerPoemsUrAngerPoembyKelvinTam.txt",
+  "/data/poems/animal/AnimalPoemsAnimalAbusePoembyTerryhalvorson.txt",
+  "/data/poems/pink/PinkPoemsPinkSwastikaPoembyJamesMcLain.txt",
+  "/data/poems/lost/LostPoemsLostAgainInSeparateJunglesPoembyUriahHamilton.txt",
+  "/data/poems/hate/HatePoemsIHateSecretsPoembyKonjitBerhane.txt",
+  "/data/poems/hair/HairPoemsHairPoemPoembyBillKnott.txt",
+  "/data/poems/murder/MurderPoemsAlleywayMurderPoembysanasoomro.txt",
+  "/data/poems/frog/FrogPoemsLeafFrogLincolnParkZooPoembyImaRyma.txt",
+  "/data/poems/culture/CulturePoemsPopCulturePoembysjgoldner.txt",
+  "/data/poems/despair/DespairPoemsDespairOfTheEarlyMorningPoembyShalomFreedman.txt",
+  "/data/poems/destiny/DestinyPoemsOurDestinyPoembyAlexanderParra.txt",
+  "/data/poems/sister/SisterPoemsSisterPleaseHoldMyHandPoembyAshleyJackson.txt",
+  "/data/poems/peace/PeacePoemsPeaceIsAFictionOfOurFaithPoembyEmilyDickinson.txt",
+  "/data/poems/star/StarPoemsForBeautyIAmNotAStarPoembyWoodrowWilson.txt",
+  "/data/poems/soldier/SoldierPoemsSoldierOfGodPoembyMaryWismer.txt",
+  "/data/poems/chicago/ChicagoPoemsChicagoBotanicGardensPoembyMichaelPruchnicki.txt",
+  "/data/poems/animal/AnimalPoemsCrazyAnimalPoembyErikmartin.txt",
+  "/data/poems/sister/SisterPoemsMySistersSisterPoembyWendysWorks.txt", ...]}
+```
+
+```elixir
+defmodule MoskiTokenizer do
+  def new(path) do
+    path
+    |> File.read!()
+    |> String.split("\n", trim: true)
+    |> Enum.with_index(1)
+    |> Map.new(fn {word, index} -> {word, index} end)
+  end
+
+  def size(tokenizer) do
+    (tokenizer |> Map.to_list() |> length()) + 1
+  end
+
+  def encode(word, tokenizer) do
+    tokenizer |> Map.get(word, 0)
+  end
+
+  def encode_text(text, tokenizer) do
+    text |> Enum.map(&encode(&1, tokenizer))
+  end
+
+  def encode_text_batch(batch, tokenizer) do
+    batch |> Stream.map(&encode_text(&1, tokenizer))
+  end
+
+  def decode(id, tokenizer) do
+    if id == 0 do
+      "[UNK]"
+    end
+
+    token = tokenizer |> Map.to_list() |> Enum.filter(fn {_, v} -> v == id end)
+
+    if token |> length() == 0 do
+      "[UNK]"
+    else
+      token |> Enum.at(0) |> elem(0)
+    end
+  end
+
+  def decode_ids(ids, tokenizer) do
+    ids |> Enum.map(&decode(&1, tokenizer))
+  end
+
+  def decode_ids_batch(batch, tokenizer) do
+    batch |> Stream.map(&decode_ids(&1, tokenizer))
+  end
+end
+```
+
+<!-- livebook:{"output":true} -->
+
+```
+{:module, MoskiTokenizer, <<70, 79, 82, 49, 0, 0, 22, ...>>, {:decode_ids_batch, 2}}
+```
+
+```elixir
+tokens_path = "/data/custom.tokens"
+tokenizer = MoskiTokenizer.new(tokens_path)
+```
+
+<!-- livebook:{"output":true} -->
+
+```
+%{
+  "appears" => 1543,
+  "rouse" => 5030,
+  "threatening" => 4508,
+  "constantly" => 3233,
+  "stooping" => 6179,
+  "ever" => 147,
+  "saves" => 5570,
+  "heels" => 4596,
+  "through" => 84,
+  "esteem" => 3636,
+  "flight" => 878,
+  "tragedy" => 3487,
+  "or" => 37,
+  "shallow" => 3914,
+  "dog" => 910,
+  "painting" => 3053,
+  "warlike" => 6659,
+  "bower" => 2822,
+  "faire" => 3856,
+  "thundering" => 5753,
+  "aroma" => 5019,
+  "combined" => 5585,
+  "slumber" => 2007,
+  "sam" => 5329,
+  "dip" => 3750,
+  "cigarettes" => 5945,
+  "lazy" => 2818,
+  "per" => 3970,
+  "gently" => 1078,
+  "pick" => 1544,
+  "smaller" => 4441,
+  "wonderful" => 1013,
+  "none" => 439,
+  "robin" => 2816,
+  "individuals" => 4389,
+  "whispering" => 2254,
+  "infernal" => 4895,
+  "sheaves" => 5297,
+  "wide" => 472,
+  "recognize" => 3619,
+  "guy" => 1740,
+  "tip" => 3696,
+  "destiny" => 733,
+  "sickness" => 2714,
+  "drove" => 2149,
+  "santa" => 4079,
+  "apart" => 830,
+  "host" => 1923,
+  "leap" => 1938,
+  "ladder" => 6597,
+  ...
+}
+```
+
+```elixir
+defmodule MoskiPreProcessing do
+  def from_path_batch_to_text_batch(paths) do
+    paths
+    |> Task.async_stream(
+      &(File.read!(&1)
+        |> String.downcase()
+        |> String.split(~r/\W+/)),
+      max_concurrency: System.schedulers_online(),
+      timeout: :infinity
+    )
+    |> Stream.map(fn {:ok, txt} -> txt end)
+  end
+
+  def from_text_batch_to_ids_batch(batch, tokenizer) do
+    MoskiTokenizer.encode_text_batch(batch, tokenizer)
+  end
+
+  def from_ids_batch_to_text_batch(batch, tokenizer) do
+    MoskiTokenizer.decode_ids_batch(batch, tokenizer)
+  end
+
+  def from_ids_batch_to_input(batch, window_size, vocab_size, chunk_size) do
+    batch
+    |> Stream.filter(fn ids ->
+      is_long = length(ids) > window_size * 2
+      is_useful = Enum.count(ids, &(&1 == 0)) < 0.90 * Enum.count(ids)
+      is_long && is_useful
+    end)
+    |> Task.async_stream(
+      fn ids ->
+        for i <- window_size..(length(ids) - window_size - 1) do
+          context =
+            Enum.slice(ids, (i - window_size)..(i - 1)) ++
+              Enum.slice(ids, (i + 1)..(i + window_size))
+
+          target = Enum.at(ids, i)
+          target_onehot = List.duplicate(0, vocab_size) |> List.replace_at(target, 1)
+
+          {Nx.tensor(context), Nx.tensor(target_onehot)}
+        end
+      end,
+      max_concurrency: System.schedulers_online(),
+      timeout: :infinity
+    )
+    |> Stream.flat_map(fn {:ok, ctx_tgt} -> ctx_tgt end)
+    |> Stream.chunk_every(chunk_size, chunk_size, :discard)
+    |> Stream.map(fn chunk ->
+      {ctx, tgt} = Enum.unzip(chunk)
+      {Nx.stack(ctx), Nx.stack(tgt)}
+    end)
+  end
+end
+```
+
+<!-- livebook:{"output":true} -->
+
+```
+{:module, MoskiPreProcessing, <<70, 79, 82, 49, 0, 0, 28, ...>>, {:from_ids_batch_to_input, 4}}
+```
+
+```elixir
+window_size = 2
+vocab_size = MoskiTokenizer.size(tokenizer)
+chunk_size = 128
+```
+
+<!-- livebook:{"output":true} -->
+
+```
+128
+```
+
+```elixir
+train_input =
+  train_paths
+  |> MoskiPreProcessing.from_path_batch_to_text_batch()
+  |> MoskiPreProcessing.from_text_batch_to_ids_batch(tokenizer)
+  |> MoskiPreProcessing.from_ids_batch_to_input(window_size, vocab_size, chunk_size)
+```
+
+<!-- livebook:{"output":true} -->
+
+```
+#Stream<[
+  enum: #Stream<[
+    enum: #Function<61.118167795/2 in Stream.transform/3>,
+    funs: [#Function<3.118167795/1 in Stream.chunk_while/4>]
+  ]>,
+  funs: [#Function<49.118167795/1 in Stream.map/2>]
+]>
+```
+
+```elixir
+test_input =
+  test_paths
+  |> MoskiPreProcessing.from_path_batch_to_text_batch()
+  |> MoskiPreProcessing.from_text_batch_to_ids_batch(tokenizer)
+  |> MoskiPreProcessing.from_ids_batch_to_input(window_size, vocab_size, chunk_size)
+```
+
+<!-- livebook:{"output":true} -->
+
+```
+#Stream<[
+  enum: #Stream<[
+    enum: #Function<61.118167795/2 in Stream.transform/3>,
+    funs: [#Function<3.118167795/1 in Stream.chunk_while/4>]
+  ]>,
+  funs: [#Function<49.118167795/1 in Stream.map/2>]
+]>
+```
+
+## Model
+
+```elixir
+embedding_size = 100
+```
+
+<!-- livebook:{"output":true} -->
+
+```
+100
+```
+
+Finally we make our model.
+
+```elixir
+defmodule MoskiCBOW do
+  def model(vocab_size, embed_size) do
+    sequence = Axon.input("context")
+
+    embedded =
+      Axon.embedding(sequence, vocab_size, embed_size)
+
+    {rnn_sequence, _state} = Axon.lstm(embedded, 64, unroll: :static)
+
+    # rnn_sequence =
+    #   Axon.bidirectional(
+    #     embedded,
+    #     &Axon.lstm(&1, 64, name: "lstm", unroll: :static),
+    #     &Nx.concatenate([&1, &2], axis: 1),
+    #     name: "bidirectional"
+    #   )
+    #   |> Axon.nx(&elem(&1, 0))
+
+    final_token =
+      Axon.nx(rnn_sequence, fn seq ->
+        Nx.squeeze(seq[[0..-1//1, -1, 0..-1//1]])
+      end)
+
+    final_token
+    |> Axon.dense(64, activation: :relu)
+    |> Axon.dense(vocab_size, activation: :softmax)
+  end
+
+  def train(model, train_data) do
+    model
+    |> Axon.Loop.trainer(
+      :categorical_cross_entropy,
+      Polaris.Optimizers.adam(learning_rate: 1.0e-2)
+    )
+    |> Axon.Loop.metric(:accuracy)
+    |> Axon.Loop.run(train_data, %{}, epochs: 15, compiler: EXLA)
+  end
+
+  def validate(model, model_state, test_data) do
+    model
+    |> Axon.Loop.evaluator()
+    |> Axon.Loop.metric(:accuracy)
+    |> Axon.Loop.run(test_data, model_state, compiler: EXLA)
+  end
+
+  def predict(model, model_state, context) do
+    context_tensor = Nx.tensor(context)
+
+    Axon.predict(model, model_state, context_tensor, compiler: EXLA)
+  end
+end
+```
+
+<!-- livebook:{"output":true} -->
+
+```
+{:module, MoskiCBOW, <<70, 79, 82, 49, 0, 0, 15, ...>>, {:predict, 3}}
+```
+
+```elixir
+model = MoskiCBOW.model(MoskiTokenizer.size(tokenizer), embedding_size)
+```
+
+<!-- livebook:{"output":true} -->
+
+```
+#Axon<
+  inputs: %{"context" => nil}
+  outputs: "softmax_0"
+  nodes: 13
+>
+```
+
+```elixir
+template = Nx.template(Nx.shape(train_input |> Enum.at(0) |> elem(0)), :s64)
+Axon.Display.as_graph(model, template)
+```
+
+```elixir
+model_state = MoskiCBOW.train(model, train_input |> Stream.take(500))
+```
+
+<!-- livebook:{"output":true} -->
+
+```
+
+03:22:12.223 [debug] Forwarding options: [compiler: EXLA] to JIT compiler
+
+03:22:20.149 [warning] passing parameter map to initialization is deprecated, use %Axon.ModelState{} instead
+Epoch: 0, Batch: 450, accuracy: 0.0845864 loss: 6.4808307
+Epoch: 1, Batch: 450, accuracy: 0.1126490 loss: 6.1750016
+Epoch: 2, Batch: 450, accuracy: 0.1430848 loss: 5.9726548
+Epoch: 3, Batch: 450, accuracy: 0.1660026 loss: 5.8198037
+Epoch: 4, Batch: 450, accuracy: 0.1735900 loss: 5.6954474
+Epoch: 5, Batch: 450, accuracy: 0.1835505 loss: 5.5871797
+Epoch: 6, Batch: 450, accuracy: 0.1913283 loss: 5.4872265
+Epoch: 7, Batch: 450, accuracy: 0.1991928 loss: 5.3968759
+Epoch: 8, Batch: 450, accuracy: 0.2078021 loss: 5.3129706
+Epoch: 9, Batch: 450, accuracy: 0.2129989 loss: 5.2360897
+Epoch: 10, Batch: 450, accuracy: 0.2170697 loss: 5.1673322
+Epoch: 11, Batch: 450, accuracy: 0.2201185 loss: 5.1043558
+Epoch: 12, Batch: 450, accuracy: 0.2254365 loss: 5.0450497
+Epoch: 13, Batch: 450, accuracy: 0.2296113 loss: 4.9899912
+Epoch: 14, Batch: 450, accuracy: 0.2321057 loss: 4.9394774
+```
+
+<!-- livebook:{"output":true} -->
+
+```
+#Axon.ModelState<
+  Parameters: 1145799 (4.58 MB)
+  Trainable Parameters: 1145795 (4.58 MB)
+  Trainable State: 4, (16 B)
+>
+```
+
+```elixir
+MoskiCBOW.validate(model, model_state, test_input)
+```
+
+<!-- livebook:{"output":true} -->
+
+```
+
+04:04:23.944 [debug] Forwarding options: [compiler: EXLA] to JIT compiler
+Batch: 2837, accuracy: 0.1264426
+```
+
+<!-- livebook:{"output":true} -->
+
+```
+%{
+  0 => %{
+    "accuracy" => #Nx.Tensor<
+      f32
+      EXLA.Backend<host:0, 0.1039224522.377094155.1867>
+      0.12644261121749878
+    >
+  }
+}
+```

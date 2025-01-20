@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  livebook:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8069:8069"
+    volumes:
+      - ./topics:/data/poems
+      - ./custom.tokens:/data/custom.tokens
+      - ./lab4.livemd:/data/lab4.livemd
+    environment:
+      - LIVEBOOK_PORT=8069
+      - LIVEBOOK_DATA_PATH=/data
+      - LIVEBOOK_PASSWORD=000000000000
+    restart: unless-stopped
