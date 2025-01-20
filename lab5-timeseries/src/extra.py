@@ -1,3 +1,4 @@
+import os
 from datetime import datetime
 from time import sleep
 
@@ -10,16 +11,11 @@ from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 
-CITY = "London"
-LAT = 51.5074
-LON = -0.1278
-BASE_URL = ""
-
-DB_HOST = "localhost"
-DB_NAME = "carbon_intensity"
-DB_USER = "le-moski"
-DB_PASSWORD = "Adrianjmc_2002"
-
+DB_HOST = os.getenv("DB_HOST","db")
+DB_USER = os.getenv("POSTGRES_USER","user")
+DB_PASSWORD = os.getenv("POSTGRES_PASSWORD","password")
+DB_NAME = os.getenv("POSTGRES_DB", "intensitydb")
+DB_PORT = os.getenv("DB_PORT", 5435)
 
 def fetch_weather_data():
     weather_data = []
@@ -46,25 +42,26 @@ def fetch_weather_data():
                     "intensity": intensity,
                 }
             )
-            print(f"[INFO] API RETURNED 1 ITEM.")
+            print(f"[EXTRA TASK] API RETURNED 1 ITEM.")
 
         sleep(0.5)  # Prevent getting ip-blocked lol
 
-    print(f"[INFO] API DATA REQUESTED. OBTAINED {len(weather_data)} ITEMS.")
+    print(f"[EXTRA TASK] API DATA REQUESTED. OBTAINED {len(weather_data)} ITEMS.")
 
     return weather_data
 
 
 def insert_data_to_db(weather_data):
     conn = psycopg2.connect(
-        dbname=DB_NAME,
-        user=DB_USER,
-        password=DB_PASSWORD,
-        host=DB_HOST,
-    )
+            database=DB_NAME,
+            user=DB_USER,
+            password=DB_PASSWORD,
+            port=DB_PORT,
+            host=DB_HOST,
+            )
     cursor = conn.cursor()
 
-    print("[INFO] CONNECTED TO DB. CREATING TABLE.")
+    print("[EXTRA TASK] CONNECTED TO DB. CREATING TABLE.")
 
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS intensity (
@@ -75,7 +72,7 @@ def insert_data_to_db(weather_data):
         );
     """)
 
-    print("[INFO] INSERTING VALUES.")
+    print("[EXTRA TASK] INSERTING VALUES.")
 
     for entry in weather_data:
         cursor.execute(
@@ -98,7 +95,7 @@ def retrieve_data_from_db():
     )
     cursor = conn.cursor()
 
-    print("[INFO] EXTRACTING DATA.")
+    print("[EXTRA TASK] EXTRACTING DATA.")
 
     cursor.execute("SELECT date, intensity FROM intensity")
     rows = cursor.fetchall()
@@ -111,9 +108,11 @@ def retrieve_data_from_db():
 
 
 def main():
-    # weather_data = fetch_weather_data()
+    print("[EXTRA TASK] Starting...")
 
-    # insert_data_to_db(weather_data)
+    weather_data = fetch_weather_data()
+
+    insert_data_to_db(weather_data)
 
     df = retrieve_data_from_db()
     df["year"] = pd.Series.apply(df["date"], lambda date: date.year)
@@ -136,8 +135,8 @@ def main():
 
     mae = mean_absolute_error(y_test, y_pred)
     rmse = np.sqrt(mean_squared_error(y_test, y_pred))
-    print(f"[INFO] Mean Absolute Error: {mae}")
-    print(f"[INFO] Root Mean Squared Error: {rmse}")
+    print(f"[EXTRA TASK] Mean Absolute Error: {mae}")
+    print(f"[EXTRA TASK] Root Mean Squared Error: {rmse}")
 
     fig, ax = plt.subplots(figsize=(10, 6))
     ax.fill_between(
@@ -179,8 +178,7 @@ def main():
     ax.set_ylabel("Intensity")
     ax.set_title("Carbon Intensity")
     ax.legend()
-    plt.show()
+    plt.savefig("/app/imgs/extra.png")
 
 
-if __name__ == "__main__":
-    main()
+main()

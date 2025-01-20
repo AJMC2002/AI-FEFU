@@ -7,22 +7,14 @@ services:
       dockerfile: Dockerfile
     volumes:
       - ./src:/app/src
-    environment:
-      - DATABASE_URL=postgresql://user:password@db:5432/mydatabase
+      - ./imgs:/app/imgs
+    env_file:
+      - .env
     depends_on:
       - db
-    command: python /app/src/main.py
-
   db:
     image: postgres:15
-    environment:
-      POSTGRES_USER: user
-      POSTGRES_PASSWORD: password
-      POSTGRES_DB: mydatabase
+    env_file:
+      - .env
     ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-
-volumes:
-  postgres_data:
+      - "5435:5432"

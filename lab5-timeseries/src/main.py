@@ -51,17 +51,36 @@ y_pred = model.predict(X_test)
 
 mae = mean_absolute_error(y_test, y_pred)
 rmse = np.sqrt(mean_squared_error(y_test, y_pred))
-print(f"Mean Absolute Error: {mae}")
-print(f"Root Mean Squared Error: {rmse}")
+print(f"[MAIN TASK] Mean Absolute Error: {mae}")
+print(f"[MAIN TASK] Root Mean Squared Error: {rmse}")
 
 date_labels = pd.to_datetime(X_test[["year", "month", "day"]])
-plt.figure(figsize=(10, 6))
-plt.scatter(date_labels, y_test.values, label="Actual", marker="o")
-plt.scatter(date_labels, y_pred, label="Predicted", marker="x")
-plt.title(f"{target} Prediction for All Data")
-plt.xlabel("Date")
-plt.ylabel(target)
-plt.xticks(rotation=45)
-plt.legend()
-plt.tight_layout()
-plt.show()
+
+results = pd.DataFrame({
+    "date": date_labels,
+    "actual": y_test.values,
+    "predicted": y_pred
+})
+
+results = results[(results["date"].dt.year >= 2018) & (results["date"].dt.year <= 2024)]
+
+fig, axes = plt.subplots(3, 1, figsize=(12, 16), sharex=False)
+fig.suptitle(f"{target} Prediction (2022-2024)", fontsize=16)
+
+axes = axes.flatten()
+
+for i, year in enumerate(range(2022, 2025)):
+    ax = axes[i]
+    yearly_data = results[results["date"].dt.year == year]
+
+    ax.scatter(yearly_data["date"], yearly_data["actual"], label="Actual", marker="o", alpha=0.7)
+    ax.scatter(yearly_data["date"], yearly_data["predicted"], label="Predicted", marker="x", alpha=0.7)
+
+    ax.set_title(f"Year {year}")
+    ax.set_xlabel("Date")
+    ax.set_ylabel(target)
+    ax.tick_params(axis="x", rotation=45)
+    ax.legend()
+
+plt.tight_layout(rect=[0, 0, 1, 0.95])
+plt.savefig("/app/imgs/main.png")

@@ -4,4 +4,4 @@ scikit-learn
 matplotlib
 requests
 kagglehub
-psycopg2
+psycopg2-binary
