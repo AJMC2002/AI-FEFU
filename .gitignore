@@ -4,3 +4,4 @@ data/
 datasets/
 target/
 venv/
+.ipynb_checkpoints
